@@ -68,7 +68,7 @@ def load_servers() -> List[Dict[str, str]]:
                 "host": host,
                 "user": user,
                 "password": password,
-                "base_https": f"https://{host}",
+                "base_https": raw.get(f"public_base_url{suffix}") or (f"http://{user}" if "." in user else f"http://{host}"),
             }
         )
         index += 1
@@ -326,9 +326,20 @@ def api_upload_by_url():
 
     filename = posixpath.basename(urlparse(file_url).path) or f"download-{int(datetime.utcnow().timestamp())}"
     temp_path = None
+    req = urllib.request.Request(
+        file_url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; RiriFTP/1.0)",
+            "Accept": "*/*",
+        },
+    )
     try:
-        with urllib.request.urlopen(file_url, timeout=60) as response, tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_file.write(response.read())
+        with urllib.request.urlopen(req, timeout=180) as response, tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                temp_file.write(chunk)
             temp_path = temp_file.name
     except Exception as e:
         return jsonify({"ok": False, "error": f"Failed to download file: {e}"}), 400

@@ -30,7 +30,9 @@ async function loadList() {
   setProgress(100, `لیست با ${data.items.length} آیتم آماده شد.`, 'آماده');
 }
 function copyLink(itemPath) {
-  const link = (baseHttps.value || '').replace(/\/$/, '') + itemPath;
+  let base = (baseHttps.value || '').trim();
+  if (base && !/^https?:\/\//i.test(base)) base = `http://${base}`;
+  const link = base.replace(/\/$/, '') + itemPath;
   navigator.clipboard.writeText(link).then(() => setLog('🔗 کپی شد: ' + link));
 }
 
