@@ -61,11 +61,29 @@ async function loadList() {
   document.getElementById('items').innerHTML = data.items.map(item => `<tr><td>${item.type === 'dir' ? '📁' : '📄'}</td><td>${item.name}</td><td>${item.type === 'dir' ? '—' : item.size}</td><td class="actions">${item.type === 'dir' ? `<button onclick="openDir('${item.path}')">باز کردن</button>` : ''}<button onclick="copyLink('${item.path}')">کپی لینک</button><button onclick="renameItem('${item.path}','${item.name}')">ویرایش نام</button><button onclick="removeItem('${item.path}','${item.type}')">حذف</button></td></tr>`).join('');
   setProgress(100, `لیست با ${data.items.length} آیتم آماده شد.`, 'آماده');
 }
-function copyLink(itemPath) {
+async function copyLink(itemPath) {
   let base = (baseHttps.value || '').trim();
-  if (base && !/^https?:\/\//i.test(base)) base = `http://${base}`;
+
+  if (base && !/^https?:\/\//i.test(base)) {
+    base = `https://${base}`;
+  }
+
   const link = base.replace(/\/$/, '') + itemPath;
-  navigator.clipboard.writeText(link).then(() => setLog('🔗 کپی شد: ' + link));
+
+  try {
+    await navigator.clipboard.writeText(link);
+    setLog('🔗 کپی شد: ' + link);
+  } catch (e) {
+    // fallback برای موبایل
+    const textArea = document.createElement('textarea');
+    textArea.value = link;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+
+    setLog('🔗 کپی شد (fallback): ' + link);
+  }
 }
 
 async function renameItem(fromPath, currentName) {
