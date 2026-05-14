@@ -3,27 +3,48 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Riri FTP Control Panel</title>
+  <title>Riri FTP Control Panel Ultra</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-<div class="bg"></div>
+<div class="aurora"></div>
 <main class="layout">
-  <section class="panel control">
-    <h1>کنترل پنل خفن FTP 🚀</h1>
-    <label>هاست</label><select id="server"></select>
-    <label>HTTPS Base URL (برای لینک دانلود)</label><input id="baseHttps" placeholder="https://example.com" />
+  <section class="panel control glass">
+    <h1>⚡ FTP Mission Control</h1>
+    <p class="subtitle">کنترل کامل هاست، پوشه، فایل، حذف، آپلود، ریکانکت و لینک نهایی HTTPS</p>
+
+    <div class="grid2">
+      <div><label>هاست مقصد</label><select id="server"></select></div>
+      <div><label>HTTPS Base URL</label><input id="baseHttps" placeholder="https://example.com" /></div>
+    </div>
+
     <label>مسیر فعلی</label>
     <div class="path-row"><input id="currentPath" value="/" /><button onclick="loadList()">نمایش</button><button onclick="goUp()">⬆️</button></div>
+
     <label>ساخت پوشه جدید</label>
-    <div class="path-row"><input id="newFolderName" placeholder="folder-name" /><button onclick="createFolder()">ساخت پوشه</button></div>
-    <label>انتخاب فایل‌ها</label><input id="fileInput" type="file" multiple />
-    <label>تعداد تلاش مجدد آپلود</label><input id="retries" type="number" value="2" min="1" max="5" />
-    <button class="primary" onclick="uploadFiles()">آپلود با Reconnect</button>
+    <div class="path-row"><input id="newFolderName" placeholder="folder-name" /><button onclick="createFolder()">ساخت</button></div>
+
+    <div class="grid2">
+      <div><label>انتخاب فایل‌ها</label><input id="fileInput" type="file" multiple /></div>
+      <div><label>تعداد تلاش مجدد</label><input id="retries" type="number" value="2" min="1" max="5" /></div>
+    </div>
+
+    <button class="primary" onclick="uploadFiles()">🚀 شروع آپلود هوشمند</button>
+
+    <div class="progress-wrap">
+      <div class="progress-meta">
+        <strong id="progressTitle">آماده برای عملیات</strong>
+        <span id="progressPercent">0%</span>
+      </div>
+      <div class="progress-bar"><div id="progressFill"></div></div>
+      <div id="progressText" class="progress-text">در انتظار شروع...</div>
+    </div>
+
     <pre id="log"></pre>
   </section>
-  <section class="panel explorer">
-    <h2>فایل‌ها و پوشه‌ها</h2>
+
+  <section class="panel explorer glass">
+    <div class="explorer-head"><h2>📂 فایل‌ها و پوشه‌ها</h2><button onclick="loadList()">↻ رفرش</button></div>
     <table><thead><tr><th>نوع</th><th>نام</th><th>سایز</th><th>عملیات</th></tr></thead><tbody id="items"></tbody></table>
   </section>
 </main>
