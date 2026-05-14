@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="aurora"></div>
-<main class="layout">
+<main class="layout compact">
   <section class="panel control glass">
     <h1>⚡ FTP Mission Control</h1>
     <p class="subtitle">کنترل کامل هاست، پوشه، فایل، حذف، آپلود، ریکانکت و لینک نهایی HTTPS</p>
@@ -31,7 +31,7 @@
     <label>آپلود با لینک مستقیم</label>
     <div class="path-row"><input id="fileUrlInput" placeholder="https://example.com/file.zip" /><button onclick="uploadByUrl()">آپلود از لینک</button></div>
 
-    <button class="primary" onclick="uploadFiles()">🚀 شروع آپلود هوشمند</button>
+    <button class="primary" onclick="uploadFiles()">💾 ذخیره در فضای محلی</button>
 
     <div class="progress-wrap">
       <div class="progress-meta">
@@ -43,6 +43,11 @@
     </div>
 
     <pre id="log"></pre>
+  </section>
+
+  <section class="panel explorer glass">
+    <div class="explorer-head"><h2>🗂️ فایل‌های محلی</h2><button onclick="loadLocalFiles()">↻ رفرش</button></div>
+    <table><thead><tr><th>نام</th><th>سایز</th><th>عملیات</th></tr></thead><tbody id="localItems"></tbody></table>
   </section>
 
   <section class="panel explorer glass">

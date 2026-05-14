@@ -18,6 +18,7 @@ function setProgress(percent, text, title = 'درحال اجرا') {
   serverSelect.innerHTML = servers.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
   serverSelect.onchange = () => { const selected = servers.find(s => s.id === serverSelect.value); baseHttps.value = selected?.base_https || ''; loadList(); };
   serverSelect.dispatchEvent(new Event('change'));
+  loadLocalFiles();
 })();
 
 async function loadList() {
@@ -73,7 +74,7 @@ async function uploadFiles() {
   const fd = new FormData(); for (const f of files) fd.append('files', f);
   fd.append('server_id', serverSelect.value); fd.append('target_dir', pathInput.value); fd.append('retries', document.getElementById('retries').value || '2'); fd.append('base_https', baseHttps.value);
 
-  setLog('⏳ شروع آپلود...', false); setProgress(5, `آماده‌سازی ${files.length} فایل برای آپلود...`, 'آپلود');
+  setLog('⏳ ذخیره محلی...', false); setProgress(5, `ذخیره ${files.length} فایل در فضای محلی...`, 'ذخیره محلی');
 
   const data = await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -81,7 +82,7 @@ async function uploadFiles() {
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
       const percent = 10 + (e.loaded / e.total) * 80;
-      setProgress(percent, `درحال ارسال دیتا: ${Math.round(e.loaded / 1024)}KB / ${Math.round(e.total / 1024)}KB`, 'آپلود فایل‌ها');
+      setProgress(percent, `درحال ذخیره دیتا: ${Math.round(e.loaded / 1024)}KB / ${Math.round(e.total / 1024)}KB`, 'ذخیره فایل‌ها');
     };
     xhr.onreadystatechange = () => {
       if (xhr.readyState !== 4) return;
@@ -91,10 +92,44 @@ async function uploadFiles() {
     xhr.send(fd);
   }).catch(err => ({ ok: false, error: err.message }));
 
-  if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'آپلود با خطا متوقف شد', 'خطا'); return; }
-  setProgress(95, 'آپلود تمام شد؛ درحال نهایی‌سازی لینک‌ها...', 'پایان آپلود');
-  data.uploaded.forEach(item => { setLog(`✅ ${item.file} -> ${item.remote_path} (attempt ${item.attempt})`); if (item.download_link) setLog('🔗 ' + item.download_link); });
-  setProgress(100, `تمام شد! ${data.uploaded.length} فایل آپلود شد.`, 'موفق');
+  if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'ذخیره ناموفق', 'خطا'); return; }
+  setProgress(100, `ذخیره شد: ${data.saved.length} فایل`, 'موفق');
+  data.saved.forEach(item => setLog(`✅ ذخیره محلی: ${item.file}`));
+  loadLocalFiles();
+}
+
+async function loadLocalFiles() {
+  const res = await fetch('/api/local/list');
+  const data = await res.json();
+  if (!data.ok) return;
+  document.getElementById('localItems').innerHTML = data.items.map(item =>
+    `<tr><td>${item.name}</td><td>${item.size}</td><td class="actions"><button onclick="uploadLocalToHost('${item.name}')">آپلود تو هاست</button><button onclick="renameLocal('${item.name}')">ادیت نام</button><button onclick="deleteLocal('${item.name}')">حذف</button></td></tr>`
+  ).join('');
+}
+
+async function deleteLocal(name) {
+  const res = await fetch('/api/local/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  const data = await res.json();
+  if (!data.ok) { setLog('❌ ' + data.error); return; }
+  loadLocalFiles();
+}
+
+async function renameLocal(old_name) {
+  const new_name = prompt('نام جدید:', old_name);
+  if (!new_name || new_name === old_name) return;
+  const res = await fetch('/api/local/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old_name, new_name }) });
+  const data = await res.json();
+  if (!data.ok) { setLog('❌ ' + data.error); return; }
+  loadLocalFiles();
+}
+
+async function uploadLocalToHost(name) {
+  const res = await fetch('/api/local/upload-to-host', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, server_id: serverSelect.value, target_dir: pathInput.value, base_https: baseHttps.value }) });
+  const data = await res.json();
+  if (!data.ok) { setLog('❌ ' + data.error); return; }
+  setLog(`✅ آپلود شد: ${data.remote_path}`);
+  if (data.download_link) setLog('🔗 ' + data.download_link);
+  loadLocalFiles();
   loadList();
 }
 
@@ -125,7 +160,7 @@ async function uploadByUrl() {
     clearTimeout(timer);
   }
   if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'ناموفق', 'خطا'); return; }
-  data.uploaded.forEach(item => setLog(`✅ ${item.file} -> ${item.remote_path}`));
-  setProgress(100, 'آپلود با لینک کامل شد', 'موفق');
-  loadList();
+  data.saved.forEach(item => setLog(`✅ ذخیره محلی از لینک: ${item.file}`));
+  setProgress(100, 'فایل لینک در فضای محلی ذخیره شد', 'موفق');
+  loadLocalFiles();
 }

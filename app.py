@@ -16,6 +16,8 @@ from flask import Flask, jsonify, render_template, request
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
+LOCAL_STORE_DIR = BASE_DIR / "local_store"
+LOCAL_STORE_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
 AUTH_USERNAME = "midcenz"
@@ -209,6 +211,13 @@ def list_remote(ftp: FTP, path: str):
     return entries
 
 
+def safe_local_name(name: str) -> str:
+    cleaned = os.path.basename((name or "").strip())
+    if not cleaned:
+        raise ValueError("Invalid file name")
+    return cleaned
+
+
 @app.route("/")
 def index():
     public_servers = [
@@ -309,67 +318,24 @@ def api_rename():
 
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
-    server_id = request.form.get("server_id", "")
-    target_dir = normalize_remote_path(request.form.get("target_dir", "/"))
-    retries = max(1, min(5, int(request.form.get("retries", "2"))))
-    base_https = request.form.get("base_https", "").strip()
-
     files = request.files.getlist("files")
     if not files:
         return jsonify({"ok": False, "error": "No files uploaded"}), 400
 
-    uploaded = []
+    saved = []
     for file in files:
-        filename = file.filename
+        filename = safe_local_name(file.filename)
         if not filename:
             continue
-
-        success = False
-        last_error = "Unknown error"
-        temp_path = None
         try:
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                file.stream.seek(0)
-                temp_file.write(file.stream.read())
-                temp_path = temp_file.name
+            file.stream.seek(0)
+            dest = LOCAL_STORE_DIR / filename
+            with open(dest, "wb") as out:
+                out.write(file.stream.read())
+            saved.append({"file": filename, "local_path": f"/local/{filename}"})
         except Exception as e:
-            return jsonify({"ok": False, "error": f"Failed to stage file {filename}: {e}"}), 400
-
-        for attempt in range(1, retries + 1):
-            ftp = None
-            try:
-                ftp = ftp_connect(server_id)
-                ensure_remote_dir(ftp, target_dir)
-                with open(temp_path, "rb") as src:
-                    ftp.storbinary(f"STOR {filename}", src)
-                remote_path = posixpath.join(target_dir, filename) if target_dir != "/" else f"/{filename}"
-                download_link = (base_https.rstrip("/") + remote_path) if base_https else ""
-                uploaded.append(
-                    {
-                        "file": filename,
-                        "remote_path": remote_path,
-                        "download_link": download_link,
-                        "attempt": attempt,
-                        "uploaded_at": datetime.utcnow().isoformat() + "Z",
-                    }
-                )
-                success = True
-                break
-            except (socket.timeout, ConnectionError, OSError, error_perm) as e:
-                last_error = str(e)
-            finally:
-                if ftp is not None:
-                    try:
-                        ftp.quit()
-                    except Exception:
-                        pass
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        if not success:
-            return jsonify({"ok": False, "error": f"Upload failed for {filename}: {last_error}", "uploaded": uploaded}), 400
-
-    return jsonify({"ok": True, "uploaded": uploaded})
+            return jsonify({"ok": False, "error": f"Failed to save file {filename}: {e}"}), 400
+    return jsonify({"ok": True, "saved": saved})
 
 
 @app.route("/api/upload-by-url", methods=["POST"])
@@ -378,53 +344,73 @@ def api_upload_by_url():
     server_id = data.get("server_id", "")
     target_dir = normalize_remote_path(data.get("target_dir", "/"))
     file_url = data.get("file_url", "")
-    retries = max(1, min(5, int(data.get("retries", 2))))
-    base_https = data.get("base_https", "").strip()
     if not file_url:
         return jsonify({"ok": False, "error": "file_url is required"}), 400
     try:
         normalized_url = normalize_download_url(file_url)
         filename = posixpath.basename(urlparse(normalized_url).path) or f"download-{int(datetime.utcnow().timestamp())}"
         temp_path = download_url_to_tempfile(normalized_url)
+        final_name = safe_local_name(filename)
+        final_path = LOCAL_STORE_DIR / final_name
+        os.replace(temp_path, final_path)
     except Exception as e:
         return jsonify({"ok": False, "error": f"Failed to download file: {e}"}), 400
+    return jsonify({"ok": True, "saved": [{"file": final_name, "local_path": f"/local/{final_name}"}]})
 
-    last_error = "Unknown error"
-    uploaded = []
-    success = False
-    for attempt in range(1, retries + 1):
-        ftp = None
-        try:
-            ftp = ftp_connect(server_id)
-            ensure_remote_dir(ftp, target_dir)
-            with open(temp_path, "rb") as src:
-                ftp.storbinary(f"STOR {filename}", src)
-            remote_path = posixpath.join(target_dir, filename) if target_dir != "/" else f"/{filename}"
-            uploaded.append(
-                {
-                    "file": filename,
-                    "remote_path": remote_path,
-                    "download_link": (base_https.rstrip("/") + remote_path) if base_https else "",
-                    "attempt": attempt,
-                    "uploaded_at": datetime.utcnow().isoformat() + "Z",
-                }
-            )
-            success = True
-            break
-        except Exception as e:
-            last_error = str(e)
-        finally:
-            if ftp is not None:
-                try:
-                    ftp.quit()
-                except Exception:
-                    pass
 
-    if temp_path and os.path.exists(temp_path):
-        os.remove(temp_path)
-    if not success:
-        return jsonify({"ok": False, "error": f"Upload failed for {filename}: {last_error}"}), 400
-    return jsonify({"ok": True, "uploaded": uploaded})
+@app.route("/api/local/list")
+def api_local_list():
+    items = []
+    for p in sorted(LOCAL_STORE_DIR.iterdir(), key=lambda x: x.name.lower()):
+        if p.is_file():
+            items.append({"name": p.name, "size": p.stat().st_size, "path": f"/local/{p.name}"})
+    return jsonify({"ok": True, "items": items})
+
+
+@app.route("/api/local/delete", methods=["POST"])
+def api_local_delete():
+    data = request.get_json(force=True)
+    name = safe_local_name(data.get("name", ""))
+    p = LOCAL_STORE_DIR / name
+    if not p.exists():
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    p.unlink()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/local/rename", methods=["POST"])
+def api_local_rename():
+    data = request.get_json(force=True)
+    old_name = safe_local_name(data.get("old_name", ""))
+    new_name = safe_local_name(data.get("new_name", ""))
+    src = LOCAL_STORE_DIR / old_name
+    dst = LOCAL_STORE_DIR / new_name
+    if not src.exists():
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    src.rename(dst)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/local/upload-to-host", methods=["POST"])
+def api_local_upload_to_host():
+    data = request.get_json(force=True)
+    name = safe_local_name(data.get("name", ""))
+    server_id = data.get("server_id", "")
+    target_dir = normalize_remote_path(data.get("target_dir", "/"))
+    base_https = data.get("base_https", "").strip()
+    local_file = LOCAL_STORE_DIR / name
+    if not local_file.exists():
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    ftp = ftp_connect(server_id)
+    try:
+        ensure_remote_dir(ftp, target_dir)
+        with open(local_file, "rb") as src:
+            ftp.storbinary(f"STOR {name}", src)
+    finally:
+        ftp.quit()
+    local_file.unlink(missing_ok=True)
+    remote_path = posixpath.join(target_dir, name) if target_dir != "/" else f"/{name}"
+    return jsonify({"ok": True, "remote_path": remote_path, "download_link": (base_https.rstrip('/') + remote_path) if base_https else ""})
 
 
 if __name__ == "__main__":
