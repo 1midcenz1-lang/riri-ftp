@@ -102,18 +102,28 @@ async function uploadByUrl() {
   const file_url = document.getElementById('fileUrlInput').value.trim();
   if (!file_url) { setLog('لینک فایل وارد نشده'); return; }
   setProgress(10, 'درحال دانلود از لینک و آپلود به FTP...', 'آپلود با لینک');
-  const res = await fetch('/api/upload-by-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      server_id: serverSelect.value,
-      target_dir: pathInput.value,
-      file_url,
-      retries: document.getElementById('retries').value || '2',
-      base_https: baseHttps.value
-    })
-  });
-  const data = await res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 600000);
+  let data;
+  try {
+    const res = await fetch('/api/upload-by-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        server_id: serverSelect.value,
+        target_dir: pathInput.value,
+        file_url,
+        retries: document.getElementById('retries').value || '2',
+        base_https: baseHttps.value
+      })
+    });
+    data = await res.json();
+  } catch (err) {
+    data = { ok: false, error: err.name === 'AbortError' ? 'زمان عملیات تمام شد (Timeout).' : err.message };
+  } finally {
+    clearTimeout(timer);
+  }
   if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'ناموفق', 'خطا'); return; }
   data.uploaded.forEach(item => setLog(`✅ ${item.file} -> ${item.remote_path}`));
   setProgress(100, 'آپلود با لینک کامل شد', 'موفق');

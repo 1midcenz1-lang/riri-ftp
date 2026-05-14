@@ -2,9 +2,10 @@ import json
 import os
 import posixpath
 import socket
+import subprocess
 import tempfile
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse, urlunparse
 from base64 import b64decode
 from datetime import datetime
 from ftplib import FTP, error_perm
@@ -97,6 +98,64 @@ def normalize_remote_path(path: str) -> str:
     if not p.startswith("/"):
         p = "/" + p
     return posixpath.normpath(p)
+
+
+def normalize_download_url(raw_url: str) -> str:
+    clean = (raw_url or "").strip().replace("\\n", "").replace("\n", "").replace("\r", "")
+    parsed = urlparse(clean)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("Invalid URL. URL must start with http:// or https:// and contain a valid host.")
+    host = parsed.hostname or ""
+    try:
+        host.encode("idna").decode("ascii")
+    except Exception:
+        raise ValueError("Invalid hostname in URL")
+    safe_path = quote(parsed.path or "/", safe="/%._-~")
+    safe_query = quote(parsed.query, safe="=&%._-~:/")
+    return urlunparse((parsed.scheme, parsed.netloc, safe_path, parsed.params, safe_query, parsed.fragment))
+
+
+def download_url_to_tempfile(file_url: str) -> str:
+    last_error = "Unknown error"
+    req = urllib.request.Request(
+        file_url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; RiriFTP/1.0)",
+            "Accept": "*/*",
+            "Connection": "close",
+        },
+    )
+    for _ in range(3):
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        temp_path = temp_file.name
+        temp_file.close()
+        try:
+            with urllib.request.urlopen(req, timeout=120) as response, open(temp_path, "wb") as out:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            return temp_path
+        except Exception as e:
+            last_error = str(e)
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    temp_path = temp_file.name
+    temp_file.close()
+    curl_cmd = [
+        "curl", "-fL", "--retry", "3", "--connect-timeout", "20", "--max-time", "600",
+        "-A", "Mozilla/5.0 (compatible; RiriFTP/1.0)", "-o", temp_path, file_url
+    ]
+    try:
+        subprocess.run(curl_cmd, check=True, capture_output=True, text=True)
+        return temp_path
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise RuntimeError(f"{last_error} | curl fallback failed: {e}")
 
 
 def ensure_remote_dir(ftp: FTP, directory: str):
@@ -318,29 +377,15 @@ def api_upload_by_url():
     data = request.get_json(force=True)
     server_id = data.get("server_id", "")
     target_dir = normalize_remote_path(data.get("target_dir", "/"))
-    file_url = data.get("file_url", "").strip()
+    file_url = data.get("file_url", "")
     retries = max(1, min(5, int(data.get("retries", 2))))
     base_https = data.get("base_https", "").strip()
     if not file_url:
         return jsonify({"ok": False, "error": "file_url is required"}), 400
-
-    filename = posixpath.basename(urlparse(file_url).path) or f"download-{int(datetime.utcnow().timestamp())}"
-    temp_path = None
-    req = urllib.request.Request(
-        file_url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; RiriFTP/1.0)",
-            "Accept": "*/*",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=180) as response, tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                temp_file.write(chunk)
-            temp_path = temp_file.name
+        normalized_url = normalize_download_url(file_url)
+        filename = posixpath.basename(urlparse(normalized_url).path) or f"download-{int(datetime.utcnow().timestamp())}"
+        temp_path = download_url_to_tempfile(normalized_url)
     except Exception as e:
         return jsonify({"ok": False, "error": f"Failed to download file: {e}"}), 400
 
