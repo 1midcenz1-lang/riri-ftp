@@ -12,6 +12,16 @@ function setProgress(percent, text, title = 'درحال اجرا') {
   const p = Math.max(0, Math.min(100, Math.round(percent)));
   progressFill.style.width = `${p}%`; progressPercent.textContent = `${p}%`; progressText.textContent = text; progressTitle.textContent = title;
 }
+async function waitTask(taskId, doneTitle) {
+  while (true) {
+    const res = await fetch(`/api/tasks/${taskId}`);
+    const t = await res.json();
+    if (!t.ok) throw new Error(t.error || 'Task failed');
+    setProgress(t.progress || 0, t.text || '...', t.title || doneTitle);
+    if (t.done) return t;
+    await new Promise(r => setTimeout(r, 700));
+  }
+}
 
 (function init() {
   const servers = JSON.parse(document.getElementById('server-data').textContent);
@@ -103,7 +113,7 @@ async function loadLocalFiles() {
   const data = await res.json();
   if (!data.ok) return;
   document.getElementById('localItems').innerHTML = data.items.map(item =>
-    `<tr><td>${item.name}</td><td>${item.size}</td><td class="actions"><button onclick="uploadLocalToHost('${item.name}')">آپلود تو هاست</button><button onclick="renameLocal('${item.name}')">ادیت نام</button><button onclick="deleteLocal('${item.name}')">حذف</button></td></tr>`
+    `<tr><td>${decodeURIComponent(item.name)}</td><td>${item.size_human}</td><td class="actions"><button onclick="uploadLocalToHost('${item.name}')">آپلود تو هاست</button><button onclick="renameLocal('${item.name}')">ادیت نام</button><button onclick="deleteLocal('${item.name}')">حذف</button></td></tr>`
   ).join('');
 }
 
@@ -127,8 +137,10 @@ async function uploadLocalToHost(name) {
   const res = await fetch('/api/local/upload-to-host', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, server_id: serverSelect.value, target_dir: pathInput.value, base_https: baseHttps.value }) });
   const data = await res.json();
   if (!data.ok) { setLog('❌ ' + data.error); return; }
-  setLog(`✅ آپلود شد: ${data.remote_path}`);
-  if (data.download_link) setLog('🔗 ' + data.download_link);
+  const task = await waitTask(data.task_id, 'آپلود به هاست');
+  if (!task.ok) { setLog('❌ ' + task.error); return; }
+  setLog(`✅ آپلود شد: ${task.remote_path}`);
+  if (task.download_link) setLog('🔗 ' + task.download_link);
   loadLocalFiles();
   loadList();
 }
@@ -137,30 +149,12 @@ async function uploadByUrl() {
   const file_url = document.getElementById('fileUrlInput').value.trim();
   if (!file_url) { setLog('لینک فایل وارد نشده'); return; }
   setProgress(10, 'درحال دانلود از لینک و آپلود به FTP...', 'آپلود با لینک');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 600000);
-  let data;
-  try {
-    const res = await fetch('/api/upload-by-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        server_id: serverSelect.value,
-        target_dir: pathInput.value,
-        file_url,
-        retries: document.getElementById('retries').value || '2',
-        base_https: baseHttps.value
-      })
-    });
-    data = await res.json();
-  } catch (err) {
-    data = { ok: false, error: err.name === 'AbortError' ? 'زمان عملیات تمام شد (Timeout).' : err.message };
-  } finally {
-    clearTimeout(timer);
-  }
+  const res = await fetch('/api/upload-by-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_url }) });
+  const data = await res.json();
   if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'ناموفق', 'خطا'); return; }
-  data.saved.forEach(item => setLog(`✅ ذخیره محلی از لینک: ${item.file}`));
+  const task = await waitTask(data.task_id, 'دانلود با لینک');
+  if (!task.ok) { setLog('❌ ' + task.error); return; }
+  task.saved.forEach(item => setLog(`✅ ذخیره محلی از لینک: ${decodeURIComponent(item.file)}`));
   setProgress(100, 'فایل لینک در فضای محلی ذخیره شد', 'موفق');
   loadLocalFiles();
 }

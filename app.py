@@ -4,6 +4,8 @@ import posixpath
 import socket
 import subprocess
 import tempfile
+import threading
+import time
 import urllib.request
 from urllib.parse import quote, urlparse, urlunparse
 from base64 import b64decode
@@ -18,6 +20,7 @@ BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
 LOCAL_STORE_DIR = BASE_DIR / "local_store"
 LOCAL_STORE_DIR.mkdir(exist_ok=True)
+TASKS: Dict[str, Dict] = {}
 
 app = Flask(__name__)
 AUTH_USERNAME = "midcenz"
@@ -158,6 +161,15 @@ def download_url_to_tempfile(file_url: str) -> str:
         if os.path.exists(temp_path):
             os.remove(temp_path)
         raise RuntimeError(f"{last_error} | curl fallback failed: {e}")
+
+
+def sizeof_fmt(num: int) -> str:
+    step = 1024.0
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if num < step:
+            return f"{num:.1f} {unit}" if unit != "B" else f"{int(num)} B"
+        num /= step
+    return f"{num:.1f} PB"
 
 
 def ensure_remote_dir(ftp: FTP, directory: str):
@@ -346,16 +358,43 @@ def api_upload_by_url():
     file_url = data.get("file_url", "")
     if not file_url:
         return jsonify({"ok": False, "error": "file_url is required"}), 400
-    try:
-        normalized_url = normalize_download_url(file_url)
-        filename = posixpath.basename(urlparse(normalized_url).path) or f"download-{int(datetime.utcnow().timestamp())}"
-        temp_path = download_url_to_tempfile(normalized_url)
-        final_name = safe_local_name(filename)
-        final_path = LOCAL_STORE_DIR / final_name
-        os.replace(temp_path, final_path)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Failed to download file: {e}"}), 400
-    return jsonify({"ok": True, "saved": [{"file": final_name, "local_path": f"/local/{final_name}"}]})
+    task_id = f"task-{int(time.time()*1000)}"
+    TASKS[task_id] = {"ok": True, "done": False, "progress": 0, "title": "دانلود با لینک", "text": "درحال آماده‌سازی..."}
+    def worker():
+        try:
+            normalized_url = normalize_download_url(file_url)
+            filename = posixpath.basename(urlparse(normalized_url).path) or f"download-{int(datetime.utcnow().timestamp())}"
+            req = urllib.request.Request(normalized_url, headers={"User-Agent": "Mozilla/5.0 (compatible; RiriFTP/1.0)"})
+            with urllib.request.urlopen(req, timeout=180) as response:
+                total = int(response.headers.get("Content-Length", "0") or 0)
+                done = 0
+                start = time.time()
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    while True:
+                        chunk = response.read(1024 * 256)
+                        if not chunk:
+                            break
+                        temp_file.write(chunk)
+                        done += len(chunk)
+                        speed = done / max(1, (time.time() - start))
+                        pct = int((done / total) * 100) if total > 0 else min(99, TASKS[task_id]["progress"] + 1)
+                        TASKS[task_id].update({"progress": pct, "text": f"{sizeof_fmt(done)} از {sizeof_fmt(total) if total else 'نامشخص'} | سرعت {sizeof_fmt(int(speed))}/s"})
+                    temp_path = temp_file.name
+            final_name = safe_local_name(filename)
+            os.replace(temp_path, LOCAL_STORE_DIR / final_name)
+            TASKS[task_id].update({"done": True, "progress": 100, "saved": [{"file": final_name, "local_path": f"/local/{final_name}"}], "text": "دانلود کامل شد"})
+        except Exception as e:
+            TASKS[task_id].update({"ok": False, "done": True, "error": f"Failed to download file: {e}"})
+    threading.Thread(target=worker, daemon=True).start()
+    return jsonify({"ok": True, "task_id": task_id})
+
+
+@app.route("/api/tasks/<task_id>")
+def api_task(task_id: str):
+    task = TASKS.get(task_id)
+    if not task:
+        return jsonify({"ok": False, "error": "Task not found"}), 404
+    return jsonify(task)
 
 
 @app.route("/api/local/list")
@@ -363,7 +402,8 @@ def api_local_list():
     items = []
     for p in sorted(LOCAL_STORE_DIR.iterdir(), key=lambda x: x.name.lower()):
         if p.is_file():
-            items.append({"name": p.name, "size": p.stat().st_size, "path": f"/local/{p.name}"})
+            size = p.stat().st_size
+            items.append({"name": p.name, "size": size, "size_human": sizeof_fmt(size), "path": f"/local/{p.name}"})
     return jsonify({"ok": True, "items": items})
 
 
@@ -401,16 +441,31 @@ def api_local_upload_to_host():
     local_file = LOCAL_STORE_DIR / name
     if not local_file.exists():
         return jsonify({"ok": False, "error": "File not found"}), 404
-    ftp = ftp_connect(server_id)
-    try:
-        ensure_remote_dir(ftp, target_dir)
-        with open(local_file, "rb") as src:
-            ftp.storbinary(f"STOR {name}", src)
-    finally:
-        ftp.quit()
-    local_file.unlink(missing_ok=True)
-    remote_path = posixpath.join(target_dir, name) if target_dir != "/" else f"/{name}"
-    return jsonify({"ok": True, "remote_path": remote_path, "download_link": (base_https.rstrip('/') + remote_path) if base_https else ""})
+    task_id = f"task-{int(time.time()*1000)}"
+    TASKS[task_id] = {"ok": True, "done": False, "progress": 0, "title": "آپلود به هاست", "text": "درحال شروع..."}
+    def worker():
+        ftp = ftp_connect(server_id)
+        try:
+            ensure_remote_dir(ftp, target_dir)
+            total = local_file.stat().st_size
+            sent = 0
+            start = time.time()
+            with open(local_file, "rb") as src:
+                def cb(chunk):
+                    nonlocal sent
+                    sent += len(chunk)
+                    speed = sent / max(1, (time.time() - start))
+                    TASKS[task_id].update({"progress": int((sent/total)*100), "text": f"{sizeof_fmt(sent)} از {sizeof_fmt(total)} | سرعت {sizeof_fmt(int(speed))}/s"})
+                ftp.storbinary(f"STOR {name}", src, blocksize=262144, callback=cb)
+            local_file.unlink(missing_ok=True)
+            remote_path = posixpath.join(target_dir, name) if target_dir != "/" else f"/{name}"
+            TASKS[task_id].update({"done": True, "progress": 100, "remote_path": remote_path, "download_link": (base_https.rstrip('/') + remote_path) if base_https else ""})
+        except Exception as e:
+            TASKS[task_id].update({"ok": False, "done": True, "error": str(e)})
+        finally:
+            ftp.quit()
+    threading.Thread(target=worker, daemon=True).start()
+    return jsonify({"ok": True, "task_id": task_id})
 
 
 if __name__ == "__main__":
