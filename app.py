@@ -14,6 +14,10 @@ from ftplib import FTP, error_perm
 from pathlib import Path
 from typing import Dict, List
 
+
+class TaskCancelled(Exception):
+    pass
+
 from flask import Flask, jsonify, render_template, request
 
 BASE_DIR = Path(__file__).parent
@@ -21,6 +25,7 @@ CONFIG_PATH = BASE_DIR / "config.json"
 LOCAL_STORE_DIR = BASE_DIR / "local_store"
 LOCAL_STORE_DIR.mkdir(exist_ok=True)
 TASKS: Dict[str, Dict] = {}
+
 
 app = Flask(__name__)
 AUTH_USERNAME = "midcenz"
@@ -359,7 +364,7 @@ def api_upload_by_url():
     if not file_url:
         return jsonify({"ok": False, "error": "file_url is required"}), 400
     task_id = f"task-{int(time.time()*1000)}"
-    TASKS[task_id] = {"ok": True, "done": False, "progress": 0, "title": "دانلود با لینک", "text": "درحال آماده‌سازی..."}
+    TASKS[task_id] = {"ok": True, "done": False, "progress": 0, "title": "دانلود با لینک", "text": "درحال آماده‌سازی...", "cancel_requested": False}
     def worker():
         try:
             normalized_url = normalize_download_url(file_url)
@@ -374,6 +379,8 @@ def api_upload_by_url():
                         chunk = response.read(1024 * 256)
                         if not chunk:
                             break
+                        if TASKS[task_id].get("cancel_requested"):
+                            raise TaskCancelled("عملیات توسط کاربر لغو شد")
                         temp_file.write(chunk)
                         done += len(chunk)
                         speed = done / max(1, (time.time() - start))
@@ -383,6 +390,8 @@ def api_upload_by_url():
             final_name = safe_local_name(filename)
             os.replace(temp_path, LOCAL_STORE_DIR / final_name)
             TASKS[task_id].update({"done": True, "progress": 100, "saved": [{"file": final_name, "local_path": f"/local/{final_name}"}], "text": "دانلود کامل شد"})
+        except TaskCancelled as e:
+            TASKS[task_id].update({"ok": False, "done": True, "error": str(e), "cancelled": True, "text": "لغو شد"})
         except Exception as e:
             TASKS[task_id].update({"ok": False, "done": True, "error": f"Failed to download file: {e}"})
     threading.Thread(target=worker, daemon=True).start()
@@ -442,7 +451,7 @@ def api_local_upload_to_host():
     if not local_file.exists():
         return jsonify({"ok": False, "error": "File not found"}), 404
     task_id = f"task-{int(time.time()*1000)}"
-    TASKS[task_id] = {"ok": True, "done": False, "progress": 0, "title": "آپلود به هاست", "text": "درحال شروع..."}
+    TASKS[task_id] = {"ok": True, "done": False, "progress": 0, "title": "آپلود به هاست", "text": "درحال شروع...", "cancel_requested": False}
     def worker():
         ftp = ftp_connect(server_id)
         try:
@@ -453,6 +462,8 @@ def api_local_upload_to_host():
             with open(local_file, "rb") as src:
                 def cb(chunk):
                     nonlocal sent
+                    if TASKS[task_id].get("cancel_requested"):
+                        raise TaskCancelled("عملیات توسط کاربر لغو شد")
                     sent += len(chunk)
                     speed = sent / max(1, (time.time() - start))
                     TASKS[task_id].update({"progress": int((sent/total)*100), "text": f"{sizeof_fmt(sent)} از {sizeof_fmt(total)} | سرعت {sizeof_fmt(int(speed))}/s"})
@@ -460,12 +471,26 @@ def api_local_upload_to_host():
             local_file.unlink(missing_ok=True)
             remote_path = posixpath.join(target_dir, name) if target_dir != "/" else f"/{name}"
             TASKS[task_id].update({"done": True, "progress": 100, "remote_path": remote_path, "download_link": (base_https.rstrip('/') + remote_path) if base_https else ""})
+        except TaskCancelled as e:
+            TASKS[task_id].update({"ok": False, "done": True, "error": str(e), "cancelled": True, "text": "لغو شد"})
         except Exception as e:
             TASKS[task_id].update({"ok": False, "done": True, "error": str(e)})
         finally:
             ftp.quit()
     threading.Thread(target=worker, daemon=True).start()
     return jsonify({"ok": True, "task_id": task_id})
+
+
+@app.route("/api/tasks/<task_id>/cancel", methods=["POST"])
+def api_task_cancel(task_id: str):
+    task = TASKS.get(task_id)
+    if not task:
+        return jsonify({"ok": False, "error": "Task not found"}), 404
+    if task.get("done"):
+        return jsonify({"ok": False, "error": "Task already completed"}), 400
+    task["cancel_requested"] = True
+    task["text"] = "درحال لغو..."
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

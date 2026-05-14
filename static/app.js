@@ -6,20 +6,41 @@ const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
 const progressPercent = document.getElementById('progressPercent');
 const progressTitle = document.getElementById('progressTitle');
+const cancelTaskBtn = document.getElementById('cancelTaskBtn');
+
+let activeTaskId = null;
 
 function setLog(msg, append = true) { logEl.textContent = append ? (logEl.textContent + '\n' + msg) : msg; }
 function setProgress(percent, text, title = 'درحال اجرا') {
   const p = Math.max(0, Math.min(100, Math.round(percent)));
   progressFill.style.width = `${p}%`; progressPercent.textContent = `${p}%`; progressText.textContent = text; progressTitle.textContent = title;
 }
+function setTaskRunning(taskId) {
+  activeTaskId = taskId || null;
+  cancelTaskBtn.style.display = activeTaskId ? 'block' : 'none';
+}
+async function cancelActiveTask() {
+  if (!activeTaskId) return;
+  const res = await fetch(`/api/tasks/${activeTaskId}/cancel`, { method: 'POST' });
+  const data = await res.json();
+  if (!data.ok) { setLog('❌ ' + data.error); return; }
+  setLog('🛑 درخواست لغو ارسال شد');
+}
+cancelTaskBtn.onclick = cancelActiveTask;
+
 async function waitTask(taskId, doneTitle) {
-  while (true) {
-    const res = await fetch(`/api/tasks/${taskId}`);
-    const t = await res.json();
-    if (!t.ok) throw new Error(t.error || 'Task failed');
-    setProgress(t.progress || 0, t.text || '...', t.title || doneTitle);
-    if (t.done) return t;
-    await new Promise(r => setTimeout(r, 700));
+  setTaskRunning(taskId);
+  try {
+    while (true) {
+      const res = await fetch(`/api/tasks/${taskId}`);
+      const t = await res.json();
+      if (!t.ok) throw new Error(t.error || 'Task failed');
+      setProgress(t.progress || 0, t.text || '...', t.title || doneTitle);
+      if (t.done) return t;
+      await new Promise(r => setTimeout(r, 700));
+    }
+  } finally {
+    setTaskRunning(null);
   }
 }
 
