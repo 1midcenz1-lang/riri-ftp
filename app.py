@@ -2,6 +2,10 @@ import json
 import os
 import posixpath
 import socket
+import tempfile
+import urllib.request
+from urllib.parse import urlparse
+from base64 import b64decode
 from datetime import datetime
 from ftplib import FTP, error_perm
 from pathlib import Path
@@ -13,6 +17,33 @@ BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
 
 app = Flask(__name__)
+AUTH_USERNAME = "midcenz"
+AUTH_PASSWORD = "@Mani2244"
+
+
+def check_auth() -> bool:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Basic "):
+        return False
+    try:
+        decoded = b64decode(auth.split(" ", 1)[1]).decode("utf-8")
+    except Exception:
+        return False
+    if ":" not in decoded:
+        return False
+    username, password = decoded.split(":", 1)
+    return username == AUTH_USERNAME and password == AUTH_PASSWORD
+
+
+@app.before_request
+def require_auth():
+    if check_auth():
+        return None
+    return (
+        jsonify({"ok": False, "error": "Authentication required"}),
+        401,
+        {"WWW-Authenticate": 'Basic realm="Riri FTP"'},
+    )
 
 
 def load_servers() -> List[Dict[str, str]]:
@@ -198,6 +229,25 @@ def api_delete():
         ftp.quit()
 
 
+@app.route("/api/rename", methods=["POST"])
+def api_rename():
+    data = request.get_json(force=True)
+    server_id = data.get("server_id", "")
+    from_path = normalize_remote_path(data.get("from_path", "/"))
+    new_name = data.get("new_name", "").strip()
+    if not new_name or "/" in new_name:
+        return jsonify({"ok": False, "error": "Invalid new name"}), 400
+    destination = posixpath.join(posixpath.dirname(from_path), new_name)
+    ftp = ftp_connect(server_id)
+    try:
+        ftp.rename(from_path, destination)
+        return jsonify({"ok": True, "new_path": destination})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    finally:
+        ftp.quit()
+
+
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
     server_id = request.form.get("server_id", "")
@@ -217,14 +267,22 @@ def api_upload():
 
         success = False
         last_error = "Unknown error"
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                file.stream.seek(0)
+                temp_file.write(file.stream.read())
+                temp_path = temp_file.name
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Failed to stage file {filename}: {e}"}), 400
 
         for attempt in range(1, retries + 1):
             ftp = None
             try:
                 ftp = ftp_connect(server_id)
                 ensure_remote_dir(ftp, target_dir)
-                file.stream.seek(0)
-                ftp.storbinary(f"STOR {filename}", file.stream)
+                with open(temp_path, "rb") as src:
+                    ftp.storbinary(f"STOR {filename}", src)
                 remote_path = posixpath.join(target_dir, filename) if target_dir != "/" else f"/{filename}"
                 download_link = (base_https.rstrip("/") + remote_path) if base_https else ""
                 uploaded.append(
@@ -246,10 +304,70 @@ def api_upload():
                         ftp.quit()
                     except Exception:
                         pass
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
         if not success:
             return jsonify({"ok": False, "error": f"Upload failed for {filename}: {last_error}", "uploaded": uploaded}), 400
 
+    return jsonify({"ok": True, "uploaded": uploaded})
+
+
+@app.route("/api/upload-by-url", methods=["POST"])
+def api_upload_by_url():
+    data = request.get_json(force=True)
+    server_id = data.get("server_id", "")
+    target_dir = normalize_remote_path(data.get("target_dir", "/"))
+    file_url = data.get("file_url", "").strip()
+    retries = max(1, min(5, int(data.get("retries", 2))))
+    base_https = data.get("base_https", "").strip()
+    if not file_url:
+        return jsonify({"ok": False, "error": "file_url is required"}), 400
+
+    filename = posixpath.basename(urlparse(file_url).path) or f"download-{int(datetime.utcnow().timestamp())}"
+    temp_path = None
+    try:
+        with urllib.request.urlopen(file_url, timeout=60) as response, tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file.write(response.read())
+            temp_path = temp_file.name
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Failed to download file: {e}"}), 400
+
+    last_error = "Unknown error"
+    uploaded = []
+    success = False
+    for attempt in range(1, retries + 1):
+        ftp = None
+        try:
+            ftp = ftp_connect(server_id)
+            ensure_remote_dir(ftp, target_dir)
+            with open(temp_path, "rb") as src:
+                ftp.storbinary(f"STOR {filename}", src)
+            remote_path = posixpath.join(target_dir, filename) if target_dir != "/" else f"/{filename}"
+            uploaded.append(
+                {
+                    "file": filename,
+                    "remote_path": remote_path,
+                    "download_link": (base_https.rstrip("/") + remote_path) if base_https else "",
+                    "attempt": attempt,
+                    "uploaded_at": datetime.utcnow().isoformat() + "Z",
+                }
+            )
+            success = True
+            break
+        except Exception as e:
+            last_error = str(e)
+        finally:
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+
+    if temp_path and os.path.exists(temp_path):
+        os.remove(temp_path)
+    if not success:
+        return jsonify({"ok": False, "error": f"Upload failed for {filename}: {last_error}"}), 400
     return jsonify({"ok": True, "uploaded": uploaded})
 
 

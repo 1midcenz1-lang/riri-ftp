@@ -26,8 +26,22 @@ async function loadList() {
   const data = await res.json();
   if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'خطا در دریافت لیست'); return; }
   pathInput.value = data.path;
-  document.getElementById('items').innerHTML = data.items.map(item => `<tr><td>${item.type === 'dir' ? '📁' : '📄'}</td><td>${item.name}</td><td>${item.type === 'dir' ? '—' : item.size}</td><td>${item.type === 'dir' ? `<button onclick="openDir('${item.path}')">باز کردن</button>` : ''}<button onclick="removeItem('${item.path}','${item.type}')">حذف</button></td></tr>`).join('');
+  document.getElementById('items').innerHTML = data.items.map(item => `<tr><td>${item.type === 'dir' ? '📁' : '📄'}</td><td>${item.name}</td><td>${item.type === 'dir' ? '—' : item.size}</td><td class="actions">${item.type === 'dir' ? `<button onclick="openDir('${item.path}')">باز کردن</button>` : ''}<button onclick="copyLink('${item.path}')">کپی لینک</button><button onclick="renameItem('${item.path}','${item.name}')">ویرایش نام</button><button onclick="removeItem('${item.path}','${item.type}')">حذف</button></td></tr>`).join('');
   setProgress(100, `لیست با ${data.items.length} آیتم آماده شد.`, 'آماده');
+}
+function copyLink(itemPath) {
+  const link = (baseHttps.value || '').replace(/\/$/, '') + itemPath;
+  navigator.clipboard.writeText(link).then(() => setLog('🔗 کپی شد: ' + link));
+}
+
+async function renameItem(fromPath, currentName) {
+  const new_name = prompt('نام جدید را وارد کنید:', currentName);
+  if (!new_name || new_name === currentName) return;
+  const res = await fetch('/api/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ server_id: serverSelect.value, from_path: fromPath, new_name }) });
+  const data = await res.json();
+  if (!data.ok) { setLog('❌ ' + data.error); return; }
+  setLog('✏️ تغییر نام انجام شد: ' + fromPath);
+  loadList();
 }
 
 function openDir(path) { pathInput.value = path; loadList(); }
@@ -79,5 +93,27 @@ async function uploadFiles() {
   setProgress(95, 'آپلود تمام شد؛ درحال نهایی‌سازی لینک‌ها...', 'پایان آپلود');
   data.uploaded.forEach(item => { setLog(`✅ ${item.file} -> ${item.remote_path} (attempt ${item.attempt})`); if (item.download_link) setLog('🔗 ' + item.download_link); });
   setProgress(100, `تمام شد! ${data.uploaded.length} فایل آپلود شد.`, 'موفق');
+  loadList();
+}
+
+async function uploadByUrl() {
+  const file_url = document.getElementById('fileUrlInput').value.trim();
+  if (!file_url) { setLog('لینک فایل وارد نشده'); return; }
+  setProgress(10, 'درحال دانلود از لینک و آپلود به FTP...', 'آپلود با لینک');
+  const res = await fetch('/api/upload-by-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      server_id: serverSelect.value,
+      target_dir: pathInput.value,
+      file_url,
+      retries: document.getElementById('retries').value || '2',
+      base_https: baseHttps.value
+    })
+  });
+  const data = await res.json();
+  if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'ناموفق', 'خطا'); return; }
+  data.uploaded.forEach(item => setLog(`✅ ${item.file} -> ${item.remote_path}`));
+  setProgress(100, 'آپلود با لینک کامل شد', 'موفق');
   loadList();
 }
