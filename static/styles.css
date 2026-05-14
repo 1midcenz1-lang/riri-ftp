@@ -1,0 +1,14 @@
+body {font-family: sans-serif; margin:0; color:#fff; background:#0f172a;}
+.bg {position:fixed; inset:0; background:radial-gradient(circle at 20% 20%,#22d3ee55,transparent 35%), radial-gradient(circle at 80% 70%,#818cf855,transparent 35%);} 
+.layout {position:relative; z-index:1; display:grid; grid-template-columns:1fr 1.2fr; gap:16px; padding:18px;}
+.panel {background:#0b1220cc; border:1px solid #334155; border-radius:16px; padding:16px; backdrop-filter: blur(8px);} 
+label {display:block; margin-top:10px; font-size:13px; color:#94a3b8}
+input,select,button {width:100%; margin-top:6px; padding:10px; border-radius:10px; border:1px solid #334155; background:#111827; color:#fff}
+button {cursor:pointer}
+button.primary {background:linear-gradient(90deg,#06b6d4,#6366f1); border:none; font-weight:bold; margin-top:14px}
+.path-row {display:flex; gap:8px}
+.path-row input {flex:1}
+table {width:100%; border-collapse:collapse}
+th,td {padding:8px; border-bottom:1px solid #233044; text-align:right}
+pre {margin-top:12px; max-height:220px; overflow:auto; background:#020617; padding:10px; border-radius:10px}
+@media (max-width: 900px){.layout{grid-template-columns:1fr;}}

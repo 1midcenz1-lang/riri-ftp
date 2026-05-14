@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Riri FTP Control Panel</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="bg"></div>
+<main class="layout">
+  <section class="panel control">
+    <h1>کنترل پنل خفن FTP 🚀</h1>
+    <label>هاست</label><select id="server"></select>
+    <label>HTTPS Base URL (برای لینک دانلود)</label><input id="baseHttps" placeholder="https://example.com" />
+    <label>مسیر فعلی</label>
+    <div class="path-row"><input id="currentPath" value="/" /><button onclick="loadList()">نمایش</button><button onclick="goUp()">⬆️</button></div>
+    <label>ساخت پوشه جدید</label>
+    <div class="path-row"><input id="newFolderName" placeholder="folder-name" /><button onclick="createFolder()">ساخت پوشه</button></div>
+    <label>انتخاب فایل‌ها</label><input id="fileInput" type="file" multiple />
+    <label>تعداد تلاش مجدد آپلود</label><input id="retries" type="number" value="2" min="1" max="5" />
+    <button class="primary" onclick="uploadFiles()">آپلود با Reconnect</button>
+    <pre id="log"></pre>
+  </section>
+  <section class="panel explorer">
+    <h2>فایل‌ها و پوشه‌ها</h2>
+    <table><thead><tr><th>نوع</th><th>نام</th><th>سایز</th><th>عملیات</th></tr></thead><tbody id="items"></tbody></table>
+  </section>
+</main>
+<script type="application/json" id="server-data">{{ servers|tojson }}</script>
+<script src="/static/app.js"></script>
+</body>
+</html>
