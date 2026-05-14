@@ -34,9 +34,9 @@ async function waitTask(taskId, doneTitle) {
     while (true) {
       const res = await fetch(`/api/tasks/${taskId}`);
       const t = await res.json();
-      if (!t.ok) throw new Error(t.error || 'Task failed');
       setProgress(t.progress || 0, t.text || '...', t.title || doneTitle);
       if (t.done) return t;
+      if (!t.ok && !t.done) throw new Error(t.error || 'Task failed');
       await new Promise(r => setTimeout(r, 700));
     }
   } finally {
@@ -158,8 +158,14 @@ async function uploadLocalToHost(name) {
   const res = await fetch('/api/local/upload-to-host', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, server_id: serverSelect.value, target_dir: pathInput.value, base_https: baseHttps.value }) });
   const data = await res.json();
   if (!data.ok) { setLog('❌ ' + data.error); return; }
-  const task = await waitTask(data.task_id, 'آپلود به هاست');
-  if (!task.ok) { setLog('❌ ' + task.error); return; }
+  let task;
+  try {
+    task = await waitTask(data.task_id, 'آپلود به هاست');
+  } catch (err) {
+    setLog('❌ ' + err.message);
+    return;
+  }
+  if (!task.ok) { setLog((task.cancelled ? '🛑 ' : '❌ ') + task.error); return; }
   setLog(`✅ آپلود شد: ${task.remote_path}`);
   if (task.download_link) setLog('🔗 ' + task.download_link);
   loadLocalFiles();
@@ -173,8 +179,14 @@ async function uploadByUrl() {
   const res = await fetch('/api/upload-by-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_url }) });
   const data = await res.json();
   if (!data.ok) { setLog('❌ ' + data.error); setProgress(0, 'ناموفق', 'خطا'); return; }
-  const task = await waitTask(data.task_id, 'دانلود با لینک');
-  if (!task.ok) { setLog('❌ ' + task.error); return; }
+  let task;
+  try {
+    task = await waitTask(data.task_id, 'دانلود با لینک');
+  } catch (err) {
+    setLog('❌ ' + err.message);
+    return;
+  }
+  if (!task.ok) { setLog((task.cancelled ? '🛑 ' : '❌ ') + task.error); return; }
   task.saved.forEach(item => setLog(`✅ ذخیره محلی از لینک: ${decodeURIComponent(item.file)}`));
   setProgress(100, 'فایل لینک در فضای محلی ذخیره شد', 'موفق');
   loadLocalFiles();
