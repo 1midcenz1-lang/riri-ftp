@@ -76,7 +76,9 @@ async function loadList() {
   currentPage = data.page || 1;
   currentTotalPages = data.total_pages || 1;
   document.getElementById('pageNum').value = String(currentPage);
-  document.getElementById('folderMeta').textContent = `تعداد کل آیتم‌ها: ${data.total_items} | حجم کل فولدر: ${data.folder_total_size_human} | مصرف کل هاست: ${data.host_usage?.raw || 'نامشخص'} | مرتب‌سازی: ${data.sort_by} (${data.sort_dir})`;
+  document.getElementById('folderMeta').textContent = `تعداد کل آیتم‌ها: ${data.total_items} | حجم کل فولدر: ${data.folder_total_size_human} | مصرف کل هاست: ${data.host_usage?.used_human && data.host_usage?.total_human ? `${data.host_usage.used_human} / ${data.host_usage.total_human}` : (data.host_usage?.raw || 'نامشخص')} | مرتب‌سازی: ${data.sort_by} (${data.sort_dir})`;
+  document.querySelectorAll('#items').forEach(()=>{});
+  document.querySelectorAll('th[data-sort]').forEach(th => { const key = th.getAttribute('data-sort'); th.textContent = th.getAttribute('data-label') + (key === sortBy ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''); });
   document.getElementById('items').innerHTML = data.items.map(item => `<tr><td>${item.type === 'dir' ? '📁' : '📄'}</td><td>${item.name}</td><td>${item.type === 'dir' ? '—' : (item.size_human || item.size)}</td><td><button onclick="editPerm('${item.path}','${item.perm || ''}')">${item.perm || '—'}</button></td><td>${item.modify || '—'}</td><td class="actions">${item.type === 'dir' ? `<button onclick="openDir('${item.path}')">باز کردن</button>` : ''}<button onclick="copyLink('${item.path}')">کپی لینک</button><button onclick="renameItem('${item.path}','${item.name}')">ویرایش نام</button><button onclick="removeItem('${item.path}','${item.type}')">حذف</button></td></tr>`).join('');
   setProgress(100, `صفحه ${currentPage} از ${currentTotalPages} آماده شد.`, 'آماده');
 }

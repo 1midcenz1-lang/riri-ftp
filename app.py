@@ -209,9 +209,31 @@ def parse_modify_epoch(modify_value: str) -> int:
     return 0
 
 
+def format_modify_display(modify_value: str) -> str:
+    if not modify_value:
+        return ""
+    for fmt in ("%Y%m%d%H%M%S", "%Y%m%d%H%M%S.%f"):
+        try:
+            return datetime.strptime(modify_value, fmt).strftime("%Y/%m/%d %H:%M")
+        except Exception:
+            pass
+    return modify_value
+
+
 def get_host_usage(ftp: FTP) -> Dict[str, str]:
     try:
         raw = ftp.sendcmd("SITE QUOTA")
+        import re
+        nums = [int(x) for x in re.findall(r"\d+", raw)]
+        if len(nums) >= 2:
+            used, total = nums[0], nums[1]
+            return {
+                "raw": raw,
+                "used_bytes": used,
+                "total_bytes": total,
+                "used_human": sizeof_fmt(used),
+                "total_human": sizeof_fmt(total),
+            }
         return {"raw": raw}
     except Exception:
         return {"raw": "Unavailable on this FTP server"}
@@ -239,7 +261,7 @@ def list_remote(ftp: FTP, path: str):
                     "size_human": sizeof_fmt(size) if item_type == "file" else "—",
                     "path": item_path,
                     "perm": facts.get("perm", ""),
-                    "modify": facts.get("modify", ""),
+                    "modify": format_modify_display(facts.get("modify", "")),
                     "modify_ts": parse_modify_epoch(facts.get("modify", "")),
                 })
         except Exception:

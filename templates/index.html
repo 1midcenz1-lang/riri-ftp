@@ -58,7 +58,7 @@
       <div><label>صفحه</label><div class="path-row"><button onclick="prevPage()">قبلی</button><input id="pageNum" value="1" /><button onclick="nextPage()">بعدی</button></div></div>
     </div>
     <div id="folderMeta" class="subtitle"></div>
-    <table><thead><tr><th onclick="setSort('type')">نوع</th><th onclick="setSort('name')">نام</th><th onclick="setSort('size')">سایز</th><th onclick="setSort('perm')">پرمیشن</th><th onclick="setSort('modify')">تاریخ</th><th>عملیات</th></tr></thead><tbody id="items"></tbody></table>
+    <table><thead><tr><th data-sort="type" data-label="نوع" onclick="setSort('type')">نوع</th><th data-sort="name" data-label="نام" onclick="setSort('name')">نام</th><th data-sort="size" data-label="سایز" onclick="setSort('size')">سایز</th><th data-sort="perm" data-label="پرمیشن" onclick="setSort('perm')">پرمیشن</th><th data-sort="modify" data-label="تاریخ" onclick="setSort('modify')">تاریخ</th><th>عملیات</th></tr></thead><tbody id="items"></tbody></table>
   </section>
 </main>
 <script type="application/json" id="server-data">{{ servers|tojson }}</script>
