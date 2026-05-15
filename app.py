@@ -13,6 +13,7 @@ from datetime import datetime
 from ftplib import FTP, error_perm
 from pathlib import Path
 from typing import Dict, List
+from urllib.parse import unquote
 
 
 class TaskCancelled(Exception):
@@ -120,7 +121,7 @@ def normalize_download_url(raw_url: str) -> str:
         host.encode("idna").decode("ascii")
     except Exception:
         raise ValueError("Invalid hostname in URL")
-    safe_path = quote(parsed.path or "/", safe="/%._-~")
+    safe_path = quote(unquote(parsed.path or "/"), safe="/@%._-~")
     safe_query = quote(parsed.query, safe="=&%._-~:/")
     return urlunparse((parsed.scheme, parsed.netloc, safe_path, parsed.params, safe_query, parsed.fragment))
 
