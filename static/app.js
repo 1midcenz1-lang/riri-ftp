@@ -95,11 +95,29 @@ function applyRemoteSearch() {
   const filtered = !query ? remoteItemsCache : remoteItemsCache.filter(item => (item.name || '').toLowerCase().includes(query));
   renderRemoteItems(filtered);
 }
-function copyLink(itemPath) {
+async function copyLink(itemPath) {
   let base = (baseHttps.value || '').trim();
-  if (base && !/^https?:\/\//i.test(base)) base = `http://${base}`;
+
+  if (base && !/^https?:\/\//i.test(base)) {
+    base = `https://${base}`;
+  }
+
   const link = base.replace(/\/$/, '') + itemPath;
-  navigator.clipboard.writeText(link).then(() => setLog('🔗 کپی شد: ' + link));
+
+  try {
+    await navigator.clipboard.writeText(link);
+    setLog('🔗 کپی شد: ' + link);
+  } catch (e) {
+    // fallback برای موبایل
+    const textArea = document.createElement('textarea');
+    textArea.value = link;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+
+    setLog('🔗 کپی شد (fallback): ' + link);
+  }
 }
 
 async function renameItem(fromPath, currentName) {
