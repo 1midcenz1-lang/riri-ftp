@@ -8,18 +8,18 @@
 </head>
 <body>
 <div class="aurora"></div>
-<main class="layout">
+<main class="layout compact">
   <section class="panel control glass">
     <h1>⚡ FTP Mission Control</h1>
     <p class="subtitle">کنترل کامل هاست، پوشه، فایل، حذف، آپلود، ریکانکت و لینک نهایی HTTPS</p>
 
     <div class="grid2">
       <div><label>هاست مقصد</label><select id="server"></select></div>
-      <div><label>HTTPS Base URL</label><input id="baseHttps" placeholder="https://example.com" /></div>
+      <div><label>Base URL (http/https)</label><input id="baseHttps" placeholder="http://dl1.example.com" /></div>
     </div>
 
     <label>مسیر فعلی</label>
-    <div class="path-row"><input id="currentPath" value="/" /><button onclick="loadList()">نمایش</button><button onclick="goUp()">⬆️</button></div>
+    <div class="path-row"><input id="currentPath" value="/downloads" /><button onclick="loadList()">نمایش</button><button onclick="goUp()">⬆️</button></div>
 
     <label>ساخت پوشه جدید</label>
     <div class="path-row"><input id="newFolderName" placeholder="folder-name" /><button onclick="createFolder()">ساخت</button></div>
@@ -28,8 +28,10 @@
       <div><label>انتخاب فایل‌ها</label><input id="fileInput" type="file" multiple /></div>
       <div><label>تعداد تلاش مجدد</label><input id="retries" type="number" value="2" min="1" max="5" /></div>
     </div>
+    <label>دانلود با لینک</label>
+    <div class="path-row"><input id="fileUrlInput" placeholder="https://example.com/file.zip" /><button onclick="uploadByUrl()">دانلود با لینک</button></div>
 
-    <button class="primary" onclick="uploadFiles()">🚀 شروع آپلود هوشمند</button>
+    <button class="primary" onclick="uploadFiles()">💾 ذخیره در فضای محلی</button>
 
     <div class="progress-wrap">
       <div class="progress-meta">
@@ -38,9 +40,15 @@
       </div>
       <div class="progress-bar"><div id="progressFill"></div></div>
       <div id="progressText" class="progress-text">در انتظار شروع...</div>
+      <button id="cancelTaskBtn" class="cancel-btn" style="display:none;">لغو عملیات</button>
     </div>
 
     <pre id="log"></pre>
+  </section>
+
+  <section class="panel explorer glass">
+    <div class="explorer-head"><h2>🗂️ فایل‌های محلی</h2><button onclick="loadLocalFiles()">↻ رفرش</button></div>
+    <table><thead><tr><th>نام</th><th>سایز</th><th>عملیات</th></tr></thead><tbody id="localItems"></tbody></table>
   </section>
 
   <section class="panel explorer glass">
