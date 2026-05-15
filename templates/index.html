@@ -48,11 +48,15 @@
 
   <section class="panel explorer glass">
     <div class="explorer-head"><h2>🗂️ فایل‌های محلی</h2><button onclick="loadLocalFiles()">↻ رفرش</button></div>
+    <label>جستجو در فایل‌های محلی</label>
+    <input id="localSearch" placeholder="مثلاً backup یا zip" oninput="applyLocalSearch()" />
     <table><thead><tr><th>نام</th><th>سایز</th><th>عملیات</th></tr></thead><tbody id="localItems"></tbody></table>
   </section>
 
   <section class="panel explorer glass">
     <div class="explorer-head"><h2>📂 فایل‌ها و پوشه‌ها</h2><button onclick="loadList()">↻ رفرش</button></div>
+    <label>جستجو در مسیر فعلی</label>
+    <input id="remoteSearch" placeholder="نام فایل یا پوشه..." oninput="applyRemoteSearch()" />
     <div class="grid2">
       <div><label>تعداد در هر صفحه</label><select id="pageSize"><option>50</option><option selected>100</option><option>200</option><option>500</option><option>1000</option></select></div>
       <div><label>صفحه</label><div class="path-row"><button onclick="prevPage()">قبلی</button><input id="pageNum" value="1" /><button onclick="nextPage()">بعدی</button></div></div>
