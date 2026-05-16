@@ -13,6 +13,8 @@ let currentPage = 1;
 let currentTotalPages = 1;
 let sortBy = localStorage.getItem('sortBy') || 'name';
 let sortDir = localStorage.getItem('sortDir') || 'asc';
+let remoteItemsCache = [];
+let localItemsCache = [];
 
 function toggleSortDir(){ sortDir = sortDir === 'asc' ? 'desc' : 'asc'; localStorage.setItem('sortDir', sortDir); }
 function setSort(col){ if (sortBy === col) toggleSortDir(); else { sortBy = col; sortDir = 'asc'; localStorage.setItem('sortBy', sortBy); localStorage.setItem('sortDir', sortDir); } currentPage = 1; loadList(); }
@@ -79,14 +81,43 @@ async function loadList() {
   document.getElementById('folderMeta').textContent = `تعداد کل آیتم‌ها: ${data.total_items} | حجم کل فولدر: ${data.folder_total_size_human} | مصرف کل هاست: ${data.host_usage?.used_human && data.host_usage?.total_human ? `${data.host_usage.used_human} / ${data.host_usage.total_human}` : (data.host_usage?.raw || 'نامشخص')} | مرتب‌سازی: ${data.sort_by} (${data.sort_dir})`;
   document.querySelectorAll('#items').forEach(()=>{});
   document.querySelectorAll('th[data-sort]').forEach(th => { const key = th.getAttribute('data-sort'); th.textContent = th.getAttribute('data-label') + (key === sortBy ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''); });
-  document.getElementById('items').innerHTML = data.items.map(item => `<tr><td>${item.type === 'dir' ? '📁' : '📄'}</td><td>${item.name}</td><td>${item.type === 'dir' ? '—' : (item.size_human || item.size)}</td><td><button onclick="editPerm('${item.path}','${item.perm || ''}')">${item.perm || '—'}</button></td><td>${item.modify || '—'}</td><td class="actions">${item.type === 'dir' ? `<button onclick="openDir('${item.path}')">باز کردن</button>` : ''}<button onclick="copyLink('${item.path}')">کپی لینک</button><button onclick="renameItem('${item.path}','${item.name}')">ویرایش نام</button><button onclick="removeItem('${item.path}','${item.type}')">حذف</button></td></tr>`).join('');
+  remoteItemsCache = data.items || [];
+  applyRemoteSearch();
   setProgress(100, `صفحه ${currentPage} از ${currentTotalPages} آماده شد.`, 'آماده');
 }
-function copyLink(itemPath) {
+
+function renderRemoteItems(items) {
+  document.getElementById('items').innerHTML = items.map(item => `<tr><td>${item.type === 'dir' ? '📁' : '📄'}</td><td>${item.name}</td><td>${item.type === 'dir' ? '—' : (item.size_human || item.size)}</td><td><button onclick="editPerm('${item.path}','${item.perm || ''}')">${item.perm || '—'}</button></td><td>${item.modify || '—'}</td><td class="actions">${item.type === 'dir' ? `<button onclick="openDir('${item.path}')">باز کردن</button>` : ''}<button onclick="copyLink('${item.path}')">کپی لینک</button><button onclick="renameItem('${item.path}','${item.name}')">ویرایش نام</button><button onclick="removeItem('${item.path}','${item.type}')">حذف</button></td></tr>`).join('');
+}
+
+function applyRemoteSearch() {
+  const query = (document.getElementById('remoteSearch')?.value || '').trim().toLowerCase();
+  const filtered = !query ? remoteItemsCache : remoteItemsCache.filter(item => (item.name || '').toLowerCase().includes(query));
+  renderRemoteItems(filtered);
+}
+async function copyLink(itemPath) {
   let base = (baseHttps.value || '').trim();
-  if (base && !/^https?:\/\//i.test(base)) base = `http://${base}`;
+
+  if (base && !/^https?:\/\//i.test(base)) {
+    base = `https://${base}`;
+  }
+
   const link = base.replace(/\/$/, '') + itemPath;
-  navigator.clipboard.writeText(link).then(() => setLog('🔗 کپی شد: ' + link));
+
+  try {
+    await navigator.clipboard.writeText(link);
+    setLog('🔗 کپی شد: ' + link);
+  } catch (e) {
+    // fallback برای موبایل
+    const textArea = document.createElement('textarea');
+    textArea.value = link;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+
+    setLog('🔗 کپی شد (fallback): ' + link);
+  }
 }
 
 async function renameItem(fromPath, currentName) {
@@ -154,9 +185,20 @@ async function loadLocalFiles() {
   const res = await fetch('/api/local/list');
   const data = await res.json();
   if (!data.ok) return;
-  document.getElementById('localItems').innerHTML = data.items.map(item =>
+  localItemsCache = data.items || [];
+  applyLocalSearch();
+}
+
+function renderLocalItems(items) {
+  document.getElementById('localItems').innerHTML = items.map(item =>
     `<tr><td>${decodeURIComponent(item.name)}</td><td>${item.size_human}</td><td class="actions"><button onclick="uploadLocalToHost('${item.name}')">آپلود تو هاست</button><button onclick="renameLocal('${item.name}')">ادیت نام</button><button onclick="deleteLocal('${item.name}')">حذف</button></td></tr>`
   ).join('');
+}
+
+function applyLocalSearch() {
+  const query = (document.getElementById('localSearch')?.value || '').trim().toLowerCase();
+  const filtered = !query ? localItemsCache : localItemsCache.filter(item => decodeURIComponent(item.name || '').toLowerCase().includes(query));
+  renderLocalItems(filtered);
 }
 
 async function deleteLocal(name) {
